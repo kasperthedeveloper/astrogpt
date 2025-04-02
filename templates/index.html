@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AstroGPT</title>
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.25.0/themes/prism-okaidia.css" rel="stylesheet">
+    <style>
+        /* Global Styles */
+        body {
+            background-color: #F7F8FA;
+            color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            color: black;
+        }
+
+        /* Chatbot container */
+        .chat-container {
+            background: #ffffff;
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            height: 70%;
+            justify-content: flex-end;
+        }
+
+        /* Chatbox styles */
+        .chat-box {
+            overflow-y: auto;
+            flex: 1;
+            margin-bottom: 15px;
+            padding-right: 10px;
+            max-height: 300px;
+            transition: opacity 1s ease;
+        }
+
+        .chat-box .user-message, .chat-box .bot-message {
+            padding: 10px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            max-width: 80%;
+            word-wrap: break-word;
+            background-color: #F1F1F1;
+        }
+
+        .chat-box .user-message {
+            background-color: #F1F1F1;
+            color: black;
+            margin-left: auto;
+        }
+
+        .chat-box .bot-message {
+            background-color: #F1F1F1;
+            color: #333;
+        }
+
+        /* Code display section */
+        pre {
+            background-color: #2d2d2d;
+            color: #f8f8f2;
+            padding: 10px;
+            border-radius: 8px;
+            overflow-x: auto;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .code-block {
+            margin-bottom: 10px;
+        }
+
+        /* Input container */
+        .chat-input-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .chat-input {
+            width: 90%;
+            padding: 10px;
+            border-radius: 20px;
+            border: 1px solid #ddd;
+            background-color: #F7F8FA;
+            color: #333;
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border: 1px solid black;
+        }
+
+        /* Send and Stop buttons */
+        .send-btn {
+            padding: 10px;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            background-color: #000000;
+            color: #fff;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: 0.3s;
+        }
+
+        .reset-btn {
+            padding: 10px 20px;
+            border-radius: 20px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            font-size: 1.1em;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <h1>AstroGPT</h1>
+
+    <div class="chat-container">
+        <div id="chatBox" class="chat-box"></div>
+        <div class="chat-input-container">
+            <input type="text" id="userInput" class="chat-input" placeholder="Type your message...">
+            <button id="sendButton" class="send-btn" onclick="sendMessage()">✉</button>
+        </div>
+        <button class="reset-btn" onclick="clearChat()">New Chat</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.25.0/prism.js"></script>
+    <script>
+        let isGenerating = false;
+        let controller;
+    
+        async function sendMessage() {
+            if (isGenerating) {
+                stopGeneration();
+                return;
+            }
+
+            let userMessage = document.getElementById("userInput").value;
+            let chatBox = document.getElementById("chatBox");
+
+            if (!userMessage.trim()) return;
+
+            chatBox.innerHTML += `<div class="user-message">${userMessage}</div>`;
+            document.getElementById("userInput").value = "";  // Clear the input field
+
+            toggleSendButton(true);  // Disable the send button while generating
+
+            controller = new AbortController();
+            let signal = controller.signal;
+
+            // Send the message to the Flask backend and stream the response
+            let response = await fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: userMessage }),
+                signal
+            }).catch(() => null);
+
+            if (!response) {
+                toggleSendButton(false);
+                return;
+            }
+
+            let reader = response.body.getReader();
+            let decoder = new TextDecoder();
+            let botMessage = document.createElement("div");
+            botMessage.classList.add("bot-message");
+            chatBox.appendChild(botMessage);  // Append the bot's message container
+
+            // Stream and process the response in real-time
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                // Append the chunk of code to the bot message
+                botMessage.innerHTML += decoder.decode(value);
+
+                // Re-highlight the code using Prism.js
+                Prism.highlightAll();
+
+                chatBox.scrollTop = chatBox.scrollHeight;  // Keep scrolling to the latest message
+            }
+
+            toggleSendButton(false);  // Re-enable the send button after generating the response
+        }
+    
+        function stopGeneration() {
+            if (controller) {
+                controller.abort();  // Stop the streaming response if requested
+                fetch("/stop", { method: "POST" });  // Notify the backend to stop generation
+            }
+            toggleSendButton(false);
+        }
+    
+        function toggleSendButton(isGeneratingNow) {
+            isGenerating = isGeneratingNow;
+            let sendButton = document.getElementById("sendButton");
+            sendButton.innerText = isGenerating ? "" : "✉";  // Change the send button text based on generating state
+            sendButton.style.backgroundColor = isGenerating ? "#888" : "#000";  // Change button color when generating
+            sendButton.style.transition = "background-color 0.3s ease";
+    
+            if (isGenerating) {
+                sendButton.innerHTML = "<div style='width: 20px; height: 20px; background-color: white;'></div>";  // Show a loading indicator while generating
+            } else {
+                sendButton.innerHTML = "✉";  // Show the envelope icon when done
+            }
+        }
+    
+        function clearChat() {
+            let chatBox = document.getElementById("chatBox");
+            chatBox.style.opacity = "0";  // Fade out the chat box content
+    
+            // Clear the chat box and reset the conversation
+            setTimeout(() => {
+                fetch("/reset", { method: "POST" }).then(response => {
+                    if (response.ok) {
+                        document.getElementById("chatBox").innerHTML = "";  // Clear the chat history
+                        document.getElementById("userInput").value = "";  // Clear the input field
+                    }
+                });
+                chatBox.style.opacity = "1";  // Fade it back in
+            }, 1000);  // Wait for the fade-out effect
+        }
+
+    </script>
+</body>
+</html>
