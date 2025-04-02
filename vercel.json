@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "app.py",
+      "src": "app.py",  // Change this to the name of your main Flask file if different
       "use": "@vercel/python"
     }
   ],
